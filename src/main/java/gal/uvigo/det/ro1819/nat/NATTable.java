@@ -22,21 +22,9 @@ import org.pcap4j.packet.Packet;
 
 import gal.uvigo.det.ro1819.nat.RoNAT.Interface;
 
-/*
- * A clase NAT_Table é onde almacenaredes as asociacións inside/outside
- * necesarias para implementar a funcionalidade do NAT. E hai que tomar as
- * precaucións necesarias (synchonized!) porque será un obxecto compartido entre
- * os dous threads que atenden, respectivamente, as dúas interfaces do noso
- * router virtual.
-*/
+
 
 public interface NATTable {
-    /* Aquí debedes incorporar o voso código, consultando e modificando a
-     * tabla NAT (NATTable table) e modificandço, se ha lugar, os paquetes que
-     * atravesan o noso router virtual. Todo paquete que abandone o router
-     * virtual por algunha das súas interfaces debe set devolto por este
-     * método.
-    */		
-
+		
     public Packet getOutputPacket(Packet packet, Interface iface);    
 }

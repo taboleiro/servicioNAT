@@ -126,19 +126,10 @@ public class RoNAT {
 	    + ")) or ip dst host " + dstHost; 
 	handleOut.setFilter(filterOut, BpfCompileMode.OPTIMIZE);		
 	
-	/////////////////////////////////////////////////////////////////////////////////////
-	/// Esta é a estructura de datos onde tedes que implementar a táboa que recollerá ///
-	/// as asociacións inside/outside propias do mecanismo NAT. Podedes definir o     ///
-	///      constructor que querades, e modificar a instrucción seguinte             ///
-	///										  ///
-	NATTable natTable = table;
-	///										  ///
-	/////////////////////////////////////////////////////////////////////////////////////
-	
-	var tIn = new PacketHandler(handleIn, sendHandleOut, Interface.INSIDE, natTable);
+	var tIn = new PacketHandler(handleIn, sendHandleOut, Interface.INSIDE, table);
 	tIn.start();
 	
-	var tOut = new PacketHandler(handleOut, sendHandleIn, Interface.OUTSIDE, natTable);
+	var tOut = new PacketHandler(handleOut, sendHandleIn, Interface.OUTSIDE, table);
 	tOut.start();
     } 
         
