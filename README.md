@@ -1,4 +1,4 @@
-# Librería de soporta para la práctica de NAT
+# Librería de soporte para la práctica de NAT
 [![Build Status](https://travis-ci.org/RedesdeOrdenadores/NAT2018-19.svg?branch=master)](https://travis-ci.org/RedesdeOrdenadores/NAT2018-19)
 
 ## Introducción
