@@ -1,0 +1,185 @@
+/*
+ * Copyright (C) 2019 Miguel Rodriguez Perez <miguel@det.uvigo.gal> and 
+ *                    Raúl Rodríguez Rubio <rrubio@det.uvigo.es>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+package gal.uvigo.det.ro1819.nat;
+
+import java.net.Inet4Address;
+
+import com.sun.tools.jdi.Packet;
+
+import org.pcap4j.core.BpfProgram.BpfCompileMode;
+import org.pcap4j.core.NotOpenException;
+import org.pcap4j.core.PacketListener;
+import org.pcap4j.core.PcapHandle;
+import org.pcap4j.core.PcapNativeException;
+import org.pcap4j.core.PcapNetworkInterface;
+import org.pcap4j.core.PcapNetworkInterface.PromiscuousMode;
+import org.pcap4j.core.Pcaps;
+import org.pcap4j.util.MacAddress;
+
+public class RoNAT {
+    public enum Interface {
+	INSIDE,
+	OUTSIDE
+    };
+
+    private static final String DEFAULTNETWORK = "10.99.100.0/24";
+    private static final String DEFAULTIIFACE = "tap0";
+    private static final String DEFAULTOIFACE = "br0";
+    private static final int SNAPSHOTLENGTH = 65536; // bytes   
+    private static final int READTIMEOUT = 50; // mseg                   
+    
+    private static RoNAT self = null;
+    
+    private String localNetwork;
+    private PcapNetworkInterface iiDev;
+    private PcapNetworkInterface oiDev;
+    private AddrSet addresses;
+
+    public static RoNAT create(MacAddress hostRouterMacAddr) throws PcapNativeException {
+	return create(hostRouterMacAddr, DEFAULTNETWORK, DEFAULTIIFACE, DEFAULTOIFACE);
+    }
+    
+    public static RoNAT create(MacAddress hostRouterMacAddr, String localNetwork, String iiface, String oiface)
+	throws PcapNativeException {
+	if (self == null) 	   
+	    self = new RoNAT(hostRouterMacAddr, localNetwork, iiface, oiface);
+
+	return self;	
+    }
+
+
+    private RoNAT(MacAddress hostRouterMacAddr, String localNetwork, String iiface, String oiface)
+	throws PcapNativeException {
+	this.localNetwork = localNetwork;
+
+	iiDev = getNetworkDevice(iiface);		
+	if (iiDev == null) {
+	    System.err.println("Error abrindo interface " + iiface);
+	    System.exit(1);
+	}
+	
+	oiDev = getNetworkDevice(oiface);
+	if (oiDev == null) {
+	    System.err.println("Error abrindo interface " + oiface);
+	    System.exit(1);
+	}
+
+	var laddr1 = iiDev.getAddresses();
+	var laddr2 = oiDev.getAddresses();
+	var lmac1 = iiDev.getLinkLayerAddresses();
+	var lmac2 = oiDev.getLinkLayerAddresses();
+	addresses = new AddrSet((Inet4Address) laddr1.get(0).getAddress(),
+					 (Inet4Address) laddr2.get(1).getAddress(),
+					 (MacAddress) lmac1.get(0),
+					 (MacAddress) lmac2.get(0),
+					 (MacAddress) hostRouterMacAddr);
+    }
+
+    
+    private PcapNetworkInterface getNetworkDevice(String devname) throws PcapNativeException {
+	var device = Pcaps.findAllDevs().stream().filter(dev -> devname.equals(dev.getName())).findAny();
+
+	if (device.isPresent()) {
+	    return device.get();		
+	}
+
+	return null;       
+    }
+
+    public AddrSet getAddresses() {
+	return addresses;
+    }
+    
+    public void execute(NATTable table) throws PcapNativeException, NotOpenException  {	
+	final PcapHandle handleIn, sendHandleIn, handleOut, sendHandleOut;
+	
+	// _Apertura dos dispositivos, obtención dos "handlers" e configuración dos filtros
+	handleIn = iiDev.openLive(SNAPSHOTLENGTH, PromiscuousMode.PROMISCUOUS, READTIMEOUT);
+	
+	handleOut = oiDev.openLive(SNAPSHOTLENGTH, PromiscuousMode.PROMISCUOUS, READTIMEOUT);
+	sendHandleIn = iiDev.openLive(SNAPSHOTLENGTH, PromiscuousMode.PROMISCUOUS, READTIMEOUT);
+	sendHandleOut = oiDev.openLive(SNAPSHOTLENGTH, PromiscuousMode.PROMISCUOUS, READTIMEOUT);
+
+
+	String filterIn = "((arp[6:2] = 2) and (ether dst " + Pcaps.toBpfString(addresses.getInnerMac())
+	    + ")) or ip src net " + localNetwork; 
+	handleIn.setFilter(filterIn, BpfCompileMode.OPTIMIZE);
+	
+	String dstHost = addresses.getOuterIP().getHostAddress();
+	String filterOut = "((arp[6:2] = 2) and (ether dst " + Pcaps.toBpfString(addresses.getOuterMac())
+	    + ")) or ip dst host " + dstHost; 
+	handleOut.setFilter(filterOut, BpfCompileMode.OPTIMIZE);		
+	
+	/////////////////////////////////////////////////////////////////////////////////////
+	/// Esta é a estructura de datos onde tedes que implementar a táboa que recollerá ///
+	/// as asociacións inside/outside propias do mecanismo NAT. Podedes definir o     ///
+	///      constructor que querades, e modificar a instrucción seguinte             ///
+	///										  ///
+	NATTable natTable = table;
+	///										  ///
+	/////////////////////////////////////////////////////////////////////////////////////
+	
+	var tIn = new PacketHandler(handleIn, sendHandleOut, Interface.INSIDE, natTable);
+	tIn.start();
+	
+	var tOut = new PacketHandler(handleOut, sendHandleIn, Interface.OUTSIDE, natTable);
+	tOut.start();
+    } 
+        
+    private static class PacketHandler extends Thread {	
+	private PcapHandle handleRX;
+	private PcapHandle handleTX;
+	private PacketListener listener;
+	private NATTable table;
+	private Interface iface;
+	
+	public PacketHandler(PcapHandle rx, PcapHandle tx, Interface iface, NATTable NAT) {
+	    handleTX = tx;
+	    handleRX = rx;
+	    table = NAT;
+	    this.iface = iface;
+	}
+	
+	@Override
+	public void run() {
+	    listener = packet -> {		
+		Packet newP = table.getOutputPacket(packet, iface);
+		
+		try {
+		    if (newP != null)
+			handleTX.sendPacket(newP);
+		} catch (PcapNativeException | NotOpenException e) {
+		    // TODO Auto-generated catch block
+		    e.printStackTrace();
+		    return;
+		} 
+	    };
+
+	    try {
+		handleRX.loop(-1, this.listener);
+	    } catch (PcapNativeException | InterruptedException | NotOpenException e) {
+		// TODO Auto-generated catch block
+		e.printStackTrace();
+	    } finally {		
+		handleRX.close();
+		handleTX.close();
+	    }
+	}
+    }        
+} 
