@@ -20,7 +20,7 @@ package gal.uvigo.det.ro1819.nat;
 
 import java.net.Inet4Address;
 
-import com.sun.tools.jdi.Packet;
+import org.pcap4j.packet.Packet;
 
 import org.pcap4j.core.BpfProgram.BpfCompileMode;
 import org.pcap4j.core.NotOpenException;

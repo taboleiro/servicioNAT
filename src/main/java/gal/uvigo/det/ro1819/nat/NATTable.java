@@ -18,7 +18,7 @@
 
 package gal.uvigo.det.ro1819.nat;
 
-import com.sun.tools.jdi.Packet;
+import org.pcap4j.packet.Packet;
 
 import gal.uvigo.det.ro1819.nat.RoNAT.Interface;
 
