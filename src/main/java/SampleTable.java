@@ -2,12 +2,13 @@ import org.pcap4j.packet.Packet;
 
 import gal.uvigo.det.ro1819.nat.AddrSet;
 import gal.uvigo.det.ro1819.nat.NATTable;
+import gal.uvigo.det.ro1819.nat.RoNAT;
 import gal.uvigo.det.ro1819.nat.RoNAT.Interface;
 
 /*
  * No programa principal (main, en Nat.java) créase un obxecto da clase SampleTable,
  * que compartirán os dous threads que implementan a funcionalidade do noso router virtual.
- * E é aquí onde debedes incorporar ás estructuras de datos que representen a táboa de
+ * E é aquí onde debedes incorporar as estructuras de datos que representen a táboa de
  * asociacións inside/outside, e calquera otra información/obxectos que manexedes/creedes
  * para implementar a funcionalidade do NAT. 
  *
@@ -37,9 +38,9 @@ class SampleTable implements NATTable {
    
     @Override
     public synchronized Packet getOutputPacket(Packet packet, Interface iface) {
-        System.out.println("Thread xestionando a interface " + 
-			  (String)((iface==RoNAT.Interface.OUTSIDE)?"externa":"interna"));
-        System.out.println(packet);
+        System.err.println("Thread xestionando a interface " + 
+			   ((iface == RoNAT.Interface.OUTSIDE) ? "externa" : "interna"));
+        System.err.println(packet);
 
 	return null;
     }
