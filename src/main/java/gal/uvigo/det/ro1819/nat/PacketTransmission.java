@@ -26,7 +26,7 @@ public class PacketTransmission {
     private Packet packet;
     private Interface transmissionIface;   
 
-    PacketTransmission(Packet p, Interface iface) {
+    public PacketTransmission(Packet p, Interface iface) {
 	this.packet=p;
 	this.transmissionIface = iface;
     }
