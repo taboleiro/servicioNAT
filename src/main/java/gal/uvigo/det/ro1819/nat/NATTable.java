@@ -21,6 +21,7 @@ package gal.uvigo.det.ro1819.nat;
 import org.pcap4j.packet.Packet;
 
 import gal.uvigo.det.ro1819.nat.RoNAT.Interface;
+import gal.uvigo.det.ro1819.nat.PacketTransmission;
 
 /**
  * Interface que debe implementarse para filtrar os paquetes.
@@ -38,5 +39,5 @@ public interface NATTable {
      * externa (OUTSIDE)
      * @return O paquete modificado ou null se se quere filtrar o paquete.
      */
-    public Packet getOutputPacket(Packet packet, Interface iface);    
+    public PacketTransmission getOutputPacket(Packet packet, Interface iface);    
 }

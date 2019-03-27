@@ -4,6 +4,7 @@ import gal.uvigo.det.ro1819.nat.AddrSet;
 import gal.uvigo.det.ro1819.nat.NATTable;
 import gal.uvigo.det.ro1819.nat.RoNAT;
 import gal.uvigo.det.ro1819.nat.RoNAT.Interface;
+import gal.uvigo.det.ro1819.nat.PacketTransmission;
 
 /**
  * No programa principal (main, en Nat.java) créase un obxecto da clase
@@ -25,6 +26,9 @@ import gal.uvigo.det.ro1819.nat.RoNAT.Interface;
  * agardando a finalización do método, quen fará a transmisión (chamada á
  * función sendPacket en RoNAT.java).
  * 
+ * O paquete a transmitir ten que envolverse dentro dun obxecto PacketTransmission,
+ * onde se indicará tamén a interface de saída (INSIDE ou OUTSIDE)
+ * 
  * A información contida neste obxecto debe tratarse coas debidas precaucións
  * xa que falamos dun obxecto compartido entre dous procesos/threads, que
  * deberán sincronizarse para que a información que len/modifican non
@@ -39,7 +43,7 @@ class SampleTable implements NATTable {
     }
    
     @Override
-    public synchronized Packet getOutputPacket(Packet packet, Interface iface) {
+    public synchronized PacketTransmission getOutputPacket(Packet packet, Interface iface) {
         System.err.println("Thread xestionando a interface " + 
 			   ((iface == RoNAT.Interface.OUTSIDE) ? "externa" : "interna"));
         System.err.println(packet);

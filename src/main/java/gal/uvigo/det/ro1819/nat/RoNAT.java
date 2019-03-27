@@ -126,22 +126,24 @@ public class RoNAT {
 	    + ")) or ip dst host " + dstHost; 
 	handleOut.setFilter(filterOut, BpfCompileMode.OPTIMIZE);		
 	
-	var tIn = new PacketHandler(handleIn, sendHandleOut, Interface.INSIDE, table);
+	var tIn = new PacketHandler(handleIn, sendHandleIn, sendHandleOut, Interface.INSIDE, table);
 	tIn.start();
 	
-	var tOut = new PacketHandler(handleOut, sendHandleIn, Interface.OUTSIDE, table);
+	var tOut = new PacketHandler(handleOut, sendHandleIn, sendHandleOut, Interface.OUTSIDE, table);
 	tOut.start();
     } 
         
     private static class PacketHandler extends Thread {	
 	private PcapHandle handleRX;
-	private PcapHandle handleTX;
+	private PcapHandle handleTxIn;
+	private PcapHandle handleTxOut;
 	private PacketListener listener;
 	private NATTable table;
 	private Interface iface;
 	
-	public PacketHandler(PcapHandle rx, PcapHandle tx, Interface iface, NATTable NAT) {
-	    handleTX = tx;
+	public PacketHandler(PcapHandle rx, PcapHandle txin, PcapHandle txout, Interface iface, NATTable NAT) {
+	    handleTxIn = txin;
+	    handleTxOut = txout;
 	    handleRX = rx;
 	    table = NAT;
 	    this.iface = iface;
@@ -149,12 +151,16 @@ public class RoNAT {
 	
 	@Override
 	public void run() {
-	    listener = packet -> {		
-		Packet newP = table.getOutputPacket(packet, iface);
+	    listener = packet -> {	
+ 		PacketTransmission pktTX = table.getOutputPacket(packet, iface);
+		Packet newP = pktTX.getPacket();
+	        Interface txIface = pktTX.getTxInterface();
 		
 		try {
 		    if (newP != null)
-			handleTX.sendPacket(newP);
+			if (txIface == RoNAT.Interface.INSIDE)
+				handleTxIn.sendPacket(newP);
+			else handleTxOut.sendPacket(newP);
 		} catch (PcapNativeException | NotOpenException e) {
 		    // TODO Auto-generated catch block
 		    e.printStackTrace();
@@ -169,7 +175,8 @@ public class RoNAT {
 		e.printStackTrace();
 	    } finally {		
 		handleRX.close();
-		handleTX.close();
+		handleTxIn.close();
+		handleTxOut.close();
 	    }
 	}
     }        
