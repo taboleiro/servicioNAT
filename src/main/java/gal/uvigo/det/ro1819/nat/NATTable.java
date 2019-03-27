@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Miguel Rodriguez Perez <miguel@det.uvigo.gal> and 
+ * Copyright (C) 2019 Miguel Rodríguez Pérez <miguel@det.uvigo.gal> and 
  *                    Raúl Rodríguez Rubio <rrubio@det.uvigo.es>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -22,9 +22,21 @@ import org.pcap4j.packet.Packet;
 
 import gal.uvigo.det.ro1819.nat.RoNAT.Interface;
 
-
-
+/**
+ * Interface que debe implementarse para filtrar os paquetes.
+ */
 public interface NATTable {
-		
+
+    /**
+     * Este método é chamado automáticamente polo thread responsable da
+     * interface pola que recén chegou un paquete. Agora mesmo só imprime unha
+     * mensaxe, e o propio paquete recibido, e representa o voso punto de partida
+     * para principiar o seu procesamento.
+     *
+     * @param packet O paquete recibido.
+     * @param iface Indica se chegou por unha interface intersa (INSIDE) our
+     * externa (OUTSIDE)
+     * @return O paquete modificado ou null se se quere filtrar o paquete.
+     */
     public Packet getOutputPacket(Packet packet, Interface iface);    
 }
