@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Miguel Rodriguez Perez <miguel@det.uvigo.gal> and 
+ * Copyright (C) 2019 Miguel Rodríguez Pérez <miguel@det.uvigo.gal> and 
  *                    Raúl Rodríguez Rubio <rrubio@det.uvigo.es>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -18,8 +18,9 @@
 
 package gal.uvigo.det.ro1819.nat;
 
-import gal.uvigo.det.ro1819.nat.RoNAT.Interface;
 import org.pcap4j.packet.Packet;
+
+import gal.uvigo.det.ro1819.nat.RoNAT.Interface;
 
 public class PacketTransmission {
     private Packet packet;

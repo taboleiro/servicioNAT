@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Miguel Rodriguez Perez <miguel@det.uvigo.gal> and 
+ * Copyright (C) 2019 Miguel Rodríguez Pérez <miguel@det.uvigo.gal> and 
  *                    Raúl Rodríguez Rubio <rrubio@det.uvigo.es>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -20,8 +20,6 @@ package gal.uvigo.det.ro1819.nat;
 
 import java.net.Inet4Address;
 
-import org.pcap4j.packet.Packet;
-
 import org.pcap4j.core.BpfProgram.BpfCompileMode;
 import org.pcap4j.core.NotOpenException;
 import org.pcap4j.core.PacketListener;
@@ -30,6 +28,7 @@ import org.pcap4j.core.PcapNativeException;
 import org.pcap4j.core.PcapNetworkInterface;
 import org.pcap4j.core.PcapNetworkInterface.PromiscuousMode;
 import org.pcap4j.core.Pcaps;
+import org.pcap4j.packet.Packet;
 import org.pcap4j.util.MacAddress;
 
 public class RoNAT {
@@ -109,7 +108,7 @@ public class RoNAT {
     public void execute(NATTable table) throws PcapNativeException, NotOpenException  {	
 	final PcapHandle handleIn, sendHandleIn, handleOut, sendHandleOut;
 	
-	// _Apertura dos dispositivos, obtención dos "handlers" e configuración dos filtros
+	// Apertura dos dispositivos, obtención dos "handlers" e configuración dos filtros
 	handleIn = iiDev.openLive(SNAPSHOTLENGTH, PromiscuousMode.PROMISCUOUS, READTIMEOUT);
 	
 	handleOut = oiDev.openLive(SNAPSHOTLENGTH, PromiscuousMode.PROMISCUOUS, READTIMEOUT);
@@ -155,17 +154,18 @@ public class RoNAT {
  		PacketTransmission pktTX = table.getOutputPacket(packet, iface);
 		Packet newP = pktTX.getPacket();
 	        Interface txIface = pktTX.getTxInterface();
-		
+
 		try {
-		    if (newP != null)
-			if (txIface == RoNAT.Interface.INSIDE)
-				handleTxIn.sendPacket(newP);
-			else handleTxOut.sendPacket(newP);
+		    if (newP != null) {			
+			var handle = (txIface == RoNAT.Interface.INSIDE) ? handleTxIn : handleTxOut;
+		    
+			handle.sendPacket(newP);
+		    }
 		} catch (PcapNativeException | NotOpenException e) {
 		    // TODO Auto-generated catch block
 		    e.printStackTrace();
-		    return;
-		} 
+		    return;		  
+		}
 	    };
 
 	    try {
