@@ -1,3 +1,4 @@
+import org.pcap4j.packet.EthernetPacket;
 import org.pcap4j.packet.Packet;
 
 import gal.uvigo.det.ro1819.nat.AddrSet;
@@ -39,7 +40,7 @@ class SampleTable implements NATTable {
     private AddrSet addrSet;
     
     public SampleTable(AddrSet addrSet) {
-	this.addrSet = addrSet;
+    	this.addrSet = addrSet;
     }
    
     @Override
@@ -47,8 +48,9 @@ class SampleTable implements NATTable {
         System.err.println("Thread xestionando a interface " + 
 			   ((iface == RoNAT.Interface.OUTSIDE) ? "externa" : "interna"));
         System.err.println(packet);
-
-	return null;
+        EthernetPacket ethP = packet.get(EthernetPacket.class);
+        
+        return null;
     }
 
 }
