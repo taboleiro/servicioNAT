@@ -3,6 +3,7 @@ import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Random;
+import java.util.logging.Logger;
 
 import org.pcap4j.packet.EthernetPacket;
 import org.pcap4j.packet.IpV4Packet;
@@ -54,9 +55,10 @@ class SampleTable implements NATTable {
     private String port = "5000"; 
     Random rand = new Random();
     PacketTransmission pTrans;
+    private static Logger log = Logger.getLogger("InfoLogging");
     /* 
      * NatTable 
-     * key: IPin_PORTin_protocol
+     * key: IPin:PORTin
      * Data: arrayList: [protocol, IP_output, Port_output, IP_input, Port_input] 
      */
     private LinkedHashMap<String, ArrayList<String>> natTable= new LinkedHashMap<String, ArrayList<String>>();
@@ -67,14 +69,19 @@ class SampleTable implements NATTable {
    
     @Override
     public synchronized PacketTransmission getOutputPacket(Packet packet, Interface iface){
-    	ArrayList<String> tableInput = new ArrayList<String>(5);
+    	ArrayList<String> inputLine = new ArrayList<String>(5);
     	String key = new String();
     	String outPort = "";
-    	UdpPacket udpPacket = null;
-    	TcpPacket tcpPacket = null;
     	Inet4Address srcAddr, dstAddr = null; 
     	Short srcPort, dstPort = 0;
+    	EthernetPacket ethP;
+    	EthernetPacket.Builder ethB;
     	IpV4Packet ipv4P;
+    	IpV4Packet.Builder ipB;
+    	UdpPacket udpPacket = null;
+    	UdpPacket.Builder udpB;
+    	TcpPacket tcpPacket = null;
+    	TcpPacket.Builder tcpB;
         System.err.println("Thread xestionando a interface " + 
 			   ((iface == RoNAT.Interface.OUTSIDE) ? "externa" : "interna"));
         System.err.println(packet);
@@ -88,124 +95,113 @@ class SampleTable implements NATTable {
          * Cualquier paquete que venga de la interface outside inicialmente, 
          * será descartado.
          */
-	    EthernetPacket ethP = packet.get(EthernetPacket.class);
-        if (iface == RoNAT.Interface.INSIDE) {
-        	// Obtención de los datos para tabla de reenvío
-	        if (ethP.getHeader().getType() == EtherType.IPV4) {
-	        	ipv4P = packet.get(IpV4Packet.class);
+	    ethP = packet.get(EthernetPacket.class);
+	    ethB = ethP.getBuilder();
+        if (ethP.getHeader().getType() == EtherType.IPV4) {
+        	ipv4P = ethP.get(IpV4Packet.class);
+        	ipB = ipv4P.getBuilder();
+        } else {
+        	return null;
+        }
+		try {
+	        if (iface == RoNAT.Interface.INSIDE) {
+	        	// Obtención de los datos para tabla de reenvío
 	        	if (ipv4P.getHeader().getDstAddr().toString().split(".")[0].contains("224")) {
 	        		// this packet is filtered because it contains a multicast direction
 	        		return null;
 	        	}
 	        	//if (ipv4P.getHeader().getProtocol() == IpNumber.arp)
-	        	tableInput.set(0, ipv4P.getHeader().getProtocol().toString());
-	        	tableInput.set(1, ipv4P.getHeader().getSrcAddr().toString());
-	        	tableInput.set(3, ipv4P.getHeader().getDstAddr().toString());
 	        	key = ipv4P.getHeader().getSrcAddr().toString();
 	        	if (ipv4P.getHeader().getProtocol() == IpNumber.UDP) {
 	        		udpPacket = packet.get(UdpPacket.class);
-	        		tableInput.set(2, udpPacket.getHeader().getSrcPort().toString());
+	        		inputLine.set(2, udpPacket.getHeader().getSrcPort().toString());
 	        		key.concat(":"+udpPacket.getHeader().getSrcPort().toString());
 	        	}else if (ipv4P.getHeader().getProtocol() == IpNumber.TCP) {
 	        		tcpPacket = packet.get(TcpPacket.class);
-	        		tableInput.set(2, tcpPacket.getHeader().getSrcPort().toString());
+	        		inputLine.set(2, tcpPacket.getHeader().getSrcPort().toString());
 	        		key.concat(":"+tcpPacket.getHeader().getSrcPort().toString());
 	        	}
 	        	
 	        	if (!natTable.containsKey(key)) {
+		        	inputLine.set(0, ipv4P.getHeader().getProtocol().toString());
+		        	inputLine.set(1, ipv4P.getHeader().getSrcAddr().toString());
+		        	inputLine.set(3, ipv4P.getHeader().getDstAddr().toString());
 	        		// First use of ip_in:port_in
-		        	if (usedPorts.containsKey(key.split(":")[1])) {
-		        		port = key.split(":")[1];
+		        	port = key.split(":")[1];
+		        	if (usedPorts.containsKey(port)) {
 		        		while (!usedPorts.containsKey(port)){
 		        			port = Integer.toString(rand.nextInt(1500) + 5000); //generate int from 5000 to 6500
 		        		}
-		        		tableInput.set(4, port);
+		        		inputLine.set(4, port);
 		        	} else {
-		        		tableInput.set(4, tableInput.get(2));
+		        		inputLine.set(4, inputLine.get(2));
 		        	}
-		        	natTable.put(key, tableInput);
+		        	natTable.put(key, inputLine);
 	        	}else {
-	        		// ip_in:port_in was used before
-	    	        if (ethP.getHeader().getType() == EtherType.IPV4) {
-	    	        	ipv4P = packet.get(IpV4Packet.class);
-	    	        	key = ipv4P.getHeader().getSrcAddr().toString();
-	    	        	// 1.- add the dstPort to the packet
-	    	        	if (ipv4P.getHeader().getProtocol() == IpNumber.UDP) {
-	    	        		udpPacket = packet.get(UdpPacket.class);
-	    	        		tableInput.set(2, udpPacket.getHeader().getSrcPort().toString());
-	    	        		key.concat(":"+udpPacket.getHeader().getSrcPort().toString());
-	    	        		UdpPacket.Builder udpB = udpPacket.getBuilder();
-	    	        		udpB.dstPort(UdpPort.getInstance(Short.parseShort(natTable.get(key).get(4))));
-	    	        	}else if (ipv4P.getHeader().getProtocol() == IpNumber.TCP) {
-	    	        		tcpPacket = packet.get(TcpPacket.class);
-	    	        		tableInput.set(2, tcpPacket.getHeader().getSrcPort().toString());
-	    	        		key.concat(":"+tcpPacket.getHeader().getSrcPort().toString());
-	    	        		TcpPacket.Builder tcpB = tcpPacket.getBuilder();
-	    	        		tcpB.dstPort(TcpPort.getInstance(Short.parseShort(natTable.get(key).get(4))));
-	    	        	}
-	    	        	
-		        		//2.- source IP changed (IP_private -> IP_public)
-		        		try {
-		        			IpV4Packet.Builder ipB = ipv4P.getBuilder();
-							ipB.srcAddr( (Inet4Address)Inet4Address.getByName(natTable.get(key).get(3)));
-							ipB.build();
-						} catch (UnknownHostException e) {
-							// TODO Auto-generated catch block
-							e.printStackTrace();
-						}
-	    	        }
-	        	}
-	        }	        
-	        
-	        
-        }else if (iface == RoNAT.Interface.OUTSIDE) {
-        	ipv4P = ethP.get(IpV4Packet.class);
-    		IpV4Packet.Builder ipB = ipv4P.getBuilder();
-	    	if (ipv4P.getHeader().getProtocol() == IpNumber.UDP) {
-	    		udpPacket = ipv4P.get(UdpPacket.class);
-	    		tableInput.set(2, udpPacket.getHeader().getSrcPort().toString());
-	    		outPort = udpPacket.getHeader().getSrcPort().toString();
-	    	}else if (ipv4P.getHeader().getProtocol() == IpNumber.TCP) {
-	    		tcpPacket = ipv4P.get(TcpPacket.class);
-	    		tableInput.set(2, tcpPacket.getHeader().getSrcPort().toString());
-	    		outPort = tcpPacket.getHeader().getSrcPort().toString();
-	    	}    		
-    		if (usedPorts.containsKey(outPort)) {
-    			// Changing source and destination port 
-        		srcAddr = ipv4P.getHeader().getDstAddr();
-        		dstAddr = (Inet4Address)Inet4Address.getByName(usedPorts.get(outPort).split(":")[0]);
-        		srcPort = Short.parseShort(natTable.get(key).get(4));
-				dstPort = Short.parseShort(natTable.get(key).get(2));
-    			if (ipv4P.getHeader().getProtocol() == IpNumber.UDP) {
-	    			UdpPacket.Builder udpB = udpPacket.getBuilder();
-	    			udpB.srcPort(UdpPort.getInstance(srcPort));
-	    			udpB.dstPort(UdpPort.getInstance(dstPort));	
-	    			udpB.dstAddr(srcAddr).srcAddr(dstAddr);
-	    			// udpB.build();
-					ipB.srcAddr(srcAddr).dstAddr(dstAddr).getPayloadBuilder(udpB);
-	        	} else if (ipv4P.getHeader().getProtocol() == IpNumber.TCP) {
-	    			TcpPacket.Builder tcpB = tcpPacket.getBuilder();
-	    			tcpB.srcPort(TcpPort.getInstance(srcPort));
-	    			tcpB.dstPort(TcpPort.getInstance(dstPort));
-	    			tcpB.dstAddr(srcAddr).srcAddr(dstAddr);
-	    			// tcpB.build();
-					ipB.srcAddr(srcAddr).dstAddr(dstAddr).getPayloadBuilder(tcpB);
-	        	}
-	        	
-    			// Changing source and destination IPaddress
-    			try {
-					ipB.srcAddr(srcAddr).dstAddr(dstAddr).getPayloadBuilder();
-					ipB.dstAddr();
-					ipB.build();
-				} catch (UnknownHostException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-    		} else {
-    			return null;
-    		}
-        	
-        }
+    	        	// 1.- add the dstPort to the packet
+    	        	dstPort = Short.parseShort(natTable.get(key).get(4));
+    	        	srcAddr = (Inet4Address)Inet4Address.getByName(natTable.get(key).get(3));
+    	        	if (ipv4P.getHeader().getProtocol() == IpNumber.UDP) {
+    	        		udpPacket = packet.get(UdpPacket.class);
+    	        		udpB = udpPacket.getBuilder();
+    	        		udpB.dstPort(UdpPort.getInstance(dstPort));
+    					ipB.srcAddr(srcAddr).payloadBuilder(udpB);
+    	        	}else if (ipv4P.getHeader().getProtocol() == IpNumber.TCP) {
+    	        		tcpPacket = packet.get(TcpPacket.class);
+    	        		tcpB = tcpPacket.getBuilder();
+    	        		tcpB.dstPort(TcpPort.getInstance(dstPort));
+    					ipB.srcAddr(srcAddr).payloadBuilder(tcpB);
+    	        	}
+    	        	ipB.build();
+		        	ethB.dstAddr(addrSet.getOuterMac()).srcAddr(addrSet.getInnerMac()).payloadBuilder(ipB);
+		        	ethB.build();
+	        	}     
+		        
+		        
+	        }else if (iface == RoNAT.Interface.OUTSIDE) {
+	    		// checking the used port 
+		    	if (ipv4P.getHeader().getProtocol() == IpNumber.UDP) {
+		    		udpPacket = ipv4P.get(UdpPacket.class);
+		    		//tableInput.set(2, udpPacket.getHeader().getSrcPort().toString());
+		    		outPort = udpPacket.getHeader().getDstPort().toString();
+		    	}else if (ipv4P.getHeader().getProtocol() == IpNumber.TCP) {
+		    		tcpPacket = ipv4P.get(TcpPacket.class);
+		    		//tableInput.set(2, tcpPacket.getHeader().getSrcPort().toString());
+		    		outPort = tcpPacket.getHeader().getSrcPort().toString();
+		    	}    		
+	    		if (usedPorts.containsKey(outPort)) {
+	    			// Changing source and destination port 
+	        		srcAddr = ipv4P.getHeader().getDstAddr();
+					dstAddr = (Inet4Address)Inet4Address.getByName(usedPorts.get(outPort).split(":")[0]);
+	        		srcPort = Short.parseShort(natTable.get(key).get(4));
+					dstPort = Short.parseShort(natTable.get(key).get(2));
+	    			if (ipv4P.getHeader().getProtocol() == IpNumber.UDP) {
+		    			udpB = udpPacket.getBuilder();
+		    			udpB.srcPort(UdpPort.getInstance(srcPort));
+		    			udpB.dstPort(UdpPort.getInstance(dstPort));	
+		    			udpB.dstAddr(srcAddr).srcAddr(dstAddr);
+		    			// udpB.build();
+						ipB.srcAddr(srcAddr).dstAddr(dstAddr).payloadBuilder(udpB);
+		        	} else if (ipv4P.getHeader().getProtocol() == IpNumber.TCP) {
+		    			tcpB = tcpPacket.getBuilder();
+		    			tcpB.srcPort(TcpPort.getInstance(srcPort));
+		    			tcpB.dstPort(TcpPort.getInstance(dstPort));
+		    			tcpB.dstAddr(srcAddr).srcAddr(dstAddr);
+		    			// tcpB.build();
+						ipB.srcAddr(srcAddr).dstAddr(dstAddr).payloadBuilder(tcpB);
+		        	}
+	    			// building the packet
+		        	ipB.build();
+		        	ethB.dstAddr(addrSet.getInnerMac()).srcAddr(addrSet.getOuterMac()).payloadBuilder(ipB);
+		        	ethB.build();
+	    		} else {
+	    			return null;
+	    		}        	
+	        }
+		} catch (UnknownHostException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
 	    //packet construction and transmission 
     	pTrans = new PacketTransmission(packet, iface);
         return pTrans;
