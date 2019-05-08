@@ -3,7 +3,6 @@ import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Random;
-import java.util.logging.Logger;
 
 import org.pcap4j.packet.EthernetPacket;
 import org.pcap4j.packet.IpV4Packet;
@@ -14,6 +13,7 @@ import org.pcap4j.packet.namednumber.EtherType;
 import org.pcap4j.packet.namednumber.IpNumber;
 import org.pcap4j.packet.namednumber.TcpPort;
 import org.pcap4j.packet.namednumber.UdpPort;
+import org.pcap4j.util.MacAddress;
 
 import gal.uvigo.det.ro1819.nat.AddrSet;
 import gal.uvigo.det.ro1819.nat.NATTable;
@@ -55,13 +55,14 @@ class SampleTable implements NATTable {
     private String port = "5000"; 
     Random rand = new Random();
     PacketTransmission pTrans;
-    private static Logger log = Logger.getLogger("InfoLogging");
+    //private static Logger log = Logger.getLogger("InfoLogging");
     /* 
      * NatTable 
      * key: IPin:PORTin
      * Data: arrayList: [protocol, IP_output, Port_output, IP_input, Port_input] 
      */
     private LinkedHashMap<String, ArrayList<String>> natTable= new LinkedHashMap<String, ArrayList<String>>();
+    private LinkedHashMap<String, MacAddress> ipMac = new LinkedHashMap<String, MacAddress>();
     private LinkedHashMap<String, String> usedPorts = new LinkedHashMap<String, String> ();
     public SampleTable(AddrSet addrSet) {
     	this.addrSet = addrSet;
@@ -106,12 +107,19 @@ class SampleTable implements NATTable {
 		try {
 	        if (iface == RoNAT.Interface.INSIDE) {
 	        	// Obtención de los datos para tabla de reenvío
+	        	System.out.println("El paquete viene de la interface inside");
 	        	if (ipv4P.getHeader().getDstAddr().toString().split(".")[0].contains("224")) {
 	        		// this packet is filtered because it contains a multicast direction
 	        		return null;
 	        	}
-	        	//if (ipv4P.getHeader().getProtocol() == IpNumber.arp)
 	        	key = ipv4P.getHeader().getSrcAddr().toString();
+	        	if (ipMac.containsKey(key)){
+	        		if (ipMac.get(key) != ethP.getHeader().getSrcAddr()) {
+	        			ipMac.put(key, ethP.getHeader().getSrcAddr());
+	        		}
+	        	} else {
+	        		ipMac.put(key, ethP.getHeader().getSrcAddr());
+	        	}
 	        	if (ipv4P.getHeader().getProtocol() == IpNumber.UDP) {
 	        		udpPacket = packet.get(UdpPacket.class);
 	        		inputLine.set(2, udpPacket.getHeader().getSrcPort().toString());
@@ -120,8 +128,7 @@ class SampleTable implements NATTable {
 	        		tcpPacket = packet.get(TcpPacket.class);
 	        		inputLine.set(2, tcpPacket.getHeader().getSrcPort().toString());
 	        		key.concat(":"+tcpPacket.getHeader().getSrcPort().toString());
-	        	}
-	        	
+	        	}	        	
 	        	if (!natTable.containsKey(key)) {
 		        	inputLine.set(0, ipv4P.getHeader().getProtocol().toString());
 		        	inputLine.set(1, ipv4P.getHeader().getSrcAddr().toString());
@@ -153,7 +160,7 @@ class SampleTable implements NATTable {
     					ipB.srcAddr(srcAddr).payloadBuilder(tcpB);
     	        	}
     	        	ipB.build();
-		        	ethB.dstAddr(addrSet.getOuterMac()).srcAddr(addrSet.getInnerMac()).payloadBuilder(ipB);
+		        	ethB.dstAddr(addrSet.getRouterMac()).srcAddr(addrSet.getOuterMac()).payloadBuilder(ipB);
 		        	ethB.build();
 	        	}     
 		        
@@ -192,7 +199,7 @@ class SampleTable implements NATTable {
 		        	}
 	    			// building the packet
 		        	ipB.build();
-		        	ethB.dstAddr(addrSet.getInnerMac()).srcAddr(addrSet.getOuterMac()).payloadBuilder(ipB);
+		        	ethB.dstAddr(ipMac.get(usedPorts.get(outPort).split(":")[0])).srcAddr(addrSet.getInnerMac()).payloadBuilder(ipB);
 		        	ethB.build();
 	    		} else {
 	    			return null;
@@ -204,6 +211,7 @@ class SampleTable implements NATTable {
 		}
 	    //packet construction and transmission 
     	pTrans = new PacketTransmission(packet, iface);
+    	System.out.println(pTrans.toString());
         return pTrans;
     }
 
