@@ -103,7 +103,8 @@ class SampleTable implements NATTable {
 	    ethB = ethP.getBuilder();
         if (ethP.getHeader().getType() == EtherType.IPV4) {
         	ipv4P = ethP.get(IpV4Packet.class);
-        	ipB = ipv4P.getBuilder();	
+        	ipB = ipv4P.getBuilder();
+	        ipB.correctChecksumAtBuild(true);	
         } else {
         	return null;
         }
@@ -112,12 +113,11 @@ class SampleTable implements NATTable {
 	        	iface = RoNAT.Interface.OUTSIDE;
 	        	// Obtención de los datos para tabla de reenvío
 	        	System.out.println("El paquete viene de la interface inside");
-	        	/*
 	        	if (ipv4P.getHeader().getDstAddr().toString().split(".")[0].contains("224")) {
-	        		System.out.println("El paquete ha sido filtrado. Multicast direction");
 	        		// this packet is filtered because it contains a multicast direction
 	        		return null; 
-	        	}*/
+	        	}
+	        	//System.out.println(packet);
 	        	key = ipv4P.getHeader().getSrcAddr().toString();
 	        	System.out.println("Direccion origen IP"+ipv4P.getHeader().getSrcAddr().toString());
 	        	if (ipMac.containsKey(key)){
@@ -138,9 +138,9 @@ class SampleTable implements NATTable {
 	        		rowTable.setSrcPort(tcpPacket.getHeader().getSrcPort().value());
 	        	}
         		rowTable.setSrcPort(udpPacket.getHeader().getSrcPort().value()); 
-	        	System.out.println(rowTable.getSrcPort().toString());
+	        	System.out.println(rowTable.getInPort().toString());
 	        	System.out.println(key);
-	        	key = key.concat(":"+rowTable.getSrcPort().toString());
+	        	key = key.concat(":"+rowTable.getInPort().toString());
 	        	System.out.println(key);
 	        	if (!natTable.containsKey(key)) {
 	        		System.out.println("No existe entrada en la tabla. Creando entrada");
@@ -152,13 +152,13 @@ class SampleTable implements NATTable {
 	        		rowTable.setDstIP(ipv4P.getHeader().getDstAddr());
 	        		System.out.println(key);
 	        		// First use of ip_in:port_in
-		        	if (usedPorts.containsKey(rowTable.getSrcPort())) {
+		        	if (usedPorts.containsKey(rowTable.getInPort())) {
 		        		System.out.println("Puerto en uso");
-		        		while (!usedPorts.containsKey(rowTable.getDstPort())){
-		        			rowTable.setDstPort((short)(rand.nextInt(1500) + 5000));//generate int from 5000 to 6500
+		        		while (!usedPorts.containsKey(rowTable.getOutPort())){
+		        			rowTable.setOutPort((short)(rand.nextInt(1500) + 5000));//generate int from 5000 to 6500
 		        		}
 		        	} else {
-		        		rowTable.setDstPort(rowTable.getSrcPort());
+		        		rowTable.setOutPort(rowTable.getInPort());
 		        	}
 		        	System.out.println("Nueva entrada en la tabla");
 		        	natTable.put(key, rowTable);
@@ -170,9 +170,11 @@ class SampleTable implements NATTable {
 	        	if (ipv4P.getHeader().getProtocol() == IpNumber.UDP) {
 	        		udpPacket = packet.get(UdpPacket.class);
 	        		udpB = udpPacket.getBuilder();
+	        		udpB.correctChecksumAtBuild(true);
 		        	System.out.println("	puerto destino original: "+udpPacket.getHeader().getDstPort().toString());
-	        		udpB.dstPort(UdpPort.getInstance(natTable.get(key).getDstPort()));
-		        	System.out.println("	puerto destino modificado: "+natTable.get(key).getDstPort());
+	        		udpB.srcPort(UdpPort.getInstance(natTable.get(key).getOutPort()));
+	        		udpB.dstAddr(ipv4P.getHeader().getDstAddr());
+	        		udpB.srcAddr(addrSet.getOuterIP());
 		        	System.out.println("	IPdir origen original: "+ipv4P.getHeader().getSrcAddr().toString());
 					ipB.srcAddr(addrSet.getOuterIP()).payloadBuilder(udpB);
 		        	System.out.println("	IPdir origen modificado: "+addrSet.getOuterIP().toString());
@@ -180,12 +182,14 @@ class SampleTable implements NATTable {
 	        		tcpPacket = packet.get(TcpPacket.class);
 		        	System.out.println("puerto destino "+tcpPacket.getHeader().getDstPort().toString());
 	        		tcpB = tcpPacket.getBuilder();
+	        		tcpB.correctChecksumAtBuild(true);
 		        	System.out.println("	puerto destino original: "+tcpPacket.getHeader().getSrcPort().toString());
-	        		tcpB.dstPort(TcpPort.getInstance(natTable.get(key).getDstPort()));
-		        	System.out.println("	puerto destino modificado: "+natTable.get(key).getDstPort());
+		        	tcpB.srcPort(TcpPort.getInstance(natTable.get(key).getOutPort()));
+	        		tcpB.dstAddr(ipv4P.getHeader().getDstAddr());
+	        		tcpB.srcAddr(addrSet.getOuterIP());
 					ipB.srcAddr(natTable.get(key).getSrcIP()).payloadBuilder(tcpB);
 	        	}
-	        	ipv4P = ipB.build();
+	        	//ipv4P = ipB.build();
 	        	System.out.println("	dir Ethernet origen incial: "+ethP.getHeader().getSrcAddr());
 	        	System.out.println("	dir Ethernet destino inicial: "+ethP.getHeader().getDstAddr());
 	        	//System.out.println("	dir Ethernet Router: "+addrSet.getRouterMac());
@@ -212,8 +216,8 @@ class SampleTable implements NATTable {
 	    			// Changing source and destination port 
 	        		srcAddr = ipv4P.getHeader().getDstAddr();
 					dstAddr = (Inet4Address)Inet4Address.getByName(usedPorts.get(outPort).split(":")[0]);
-	        		srcPort = natTable.get(key).getSrcPort();
-					dstPort = natTable.get(key).getDstPort();
+	        		srcPort = natTable.get(key).getInPort();
+					dstPort = natTable.get(key).getOutPort();
 	    			if (ipv4P.getHeader().getProtocol() == IpNumber.UDP) {
 		    			udpB = udpPacket.getBuilder();
 		    			udpB.srcPort(UdpPort.getInstance(srcPort));
@@ -232,7 +236,7 @@ class SampleTable implements NATTable {
 	    			// building the packet
 		        	ipB.build();
 		        	ethB.dstAddr(ipMac.get(usedPorts.get(outPort).split(":")[0])).srcAddr(addrSet.getInnerMac()).payloadBuilder(ipB);
-		        	ethB.build();
+		        	ethP = ethB.build();
 	    		} else {
 	    			return null;
 	    		}        	
@@ -245,8 +249,8 @@ class SampleTable implements NATTable {
 		packetB.payloadBuilder(ethB);
 		packet = packetB.build();
 	    //packet construction and transmission 
-    	pTrans = new PacketTransmission(packet, iface);
-    	System.out.println(pTrans.toString());
+    	pTrans = new PacketTransmission(ethP, iface);
+    	System.out.println(packet);
         return pTrans;
     }
 
@@ -254,7 +258,7 @@ class SampleTable implements NATTable {
 
 class RowTable {
 	IpNumber protocol;
-	Short srcPort, dstPort;
+	Short inPort, outPort;
 	Inet4Address srcIP, dstIP;
 
 	public IpNumber getProtocol() {
@@ -263,17 +267,17 @@ class RowTable {
 	public void setProtocol(IpNumber protocol) {
 		this.protocol = protocol;
 	}
-	public Short getSrcPort() {
-		return srcPort;
+	public Short getInPort() {
+		return inPort;
 	}
-	public void setSrcPort(Short srcPort) {
-		this.srcPort = srcPort;
+	public void setSrcPort(Short inPort) {
+		this.inPort = inPort;
 	}
-	public Short getDstPort() {
-		return dstPort;
+	public Short getOutPort() {
+		return outPort;
 	}
-	public void setDstPort(Short dstPort) {
-		this.dstPort = dstPort;
+	public void setOutPort(Short outPort) {
+		this.outPort = outPort;
 	}
 	public Inet4Address getSrcIP() {
 		return srcIP;
