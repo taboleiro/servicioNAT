@@ -112,11 +112,12 @@ class SampleTable implements NATTable {
         	iface = RoNAT.Interface.OUTSIDE;
         	// Obtención de los datos para tabla de reenvío
         	System.out.println("El paquete viene de la interface inside");
-        	/*
-        	if (ipv4P.getHeader().getDstAddr().toString().split(".")[0].contains("224")) {
+        	if (ipv4P.getHeader().getDstAddr().toString().contains("/224.") ||
+        		ipv4P.getHeader().getDstAddr().equals(addrSet.getInnerIP())) {
         		// this packet is filtered because it contains a multicast direction
+        		filtering("INSIDE", ipv4P.getHeader().getDstAddr().toString());
         		return null; 
-        	}*/
+        	}
         	//System.out.println(packet);
         	key = ipv4P.getHeader().getSrcAddr().toString();
         	System.out.println("Direccion origen IP"+ipv4P.getHeader().getSrcAddr().toString());
@@ -135,17 +136,15 @@ class SampleTable implements NATTable {
         		System.out.println("'"+udpPacket.getHeader().getSrcPort().toString()+"'");
         		rowTable.setSrcPort(udpPacket.getHeader().getSrcPort().value()); 
         		if (udpPacket.getHeader().getDstPort().value() == 12345) {
-        			printTable();
+        			for (String row : natTable.keySet()){
+        				System.out.println(natTable.get(row).getProtocol()+"	"+natTable.get(row).getOutIP()+"	"+natTable.get(row).getOutPort()+"	"+natTable.get(row).getInIP()+"	"+natTable.get(row).getInPort());
+        			}
         			return null;
         		}
         	}else if (ipv4P.getHeader().getProtocol() == IpNumber.TCP) {
 	        	System.out.println("Trabajando con TCP");
         		tcpPacket = ipv4P.get(TcpPacket.class);
         		rowTable.setSrcPort(tcpPacket.getHeader().getSrcPort().value());
-        		if (tcpPacket.getHeader().getDstPort().value() == 12345) {
-        			printTable();
-        			return null;
-        		}
         	}
         	System.out.println(rowTable.getInPort().toString());
         	System.out.println(key);
@@ -263,6 +262,7 @@ class SampleTable implements NATTable {
     	    	System.out.println("Estamos aquí 4");
 	        	//System.out.println(ethP);
     		} else {
+    			filtering("OUTSIDE", ipv4P.getHeader().getDstAddr().toString());
     			return null;
     		}        	
         }
@@ -271,11 +271,10 @@ class SampleTable implements NATTable {
         return pTrans;
     }	
     
-    public void printTable() {
-		for (String key : natTable.keySet()){
-			System.out.println(natTable.get(key).getProtocol()+"	"+natTable.get(key).getInIP()+"	"+natTable.get(key).getInPort()+"	"+natTable.get(key).getOutIP()+"	"+natTable.get(key).getOutPort());
-		}
-	}
+    public void filtering(String iface, String ip) {
+		System.out.println("Paquete IP filtrado: recibido por Iface: "+iface+" e IP destino "+ip);
+		return;
+    }
 
 }
 
