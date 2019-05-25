@@ -1,4 +1,10 @@
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.IOException;
 import java.net.Inet4Address;
+import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.List;
@@ -56,11 +62,12 @@ class SampleTable implements NATTable {
     private String port = "5000"; 
     Random rand = new Random();
     PacketTransmission pTrans;
+    Boolean first = true;
     //private static Logger log = Logger.getLogger("InfoLogging");
     /* 
      * NatTable 
      * key: IPin:PORTin
-     * Data: arrayList: [protocol, IP_output, Port_output, IP_input, Port_input] 
+     * Data: arrayList: [protocol, IP_output, Port_output, IP_input, Port_input, expiration](Instante de último uso) 
      */
     private LinkedHashMap<String, RowTable> natTable= new LinkedHashMap<String, RowTable>();
     private LinkedHashMap<String, MacAddress> ipMac = new LinkedHashMap<String, MacAddress>();
@@ -73,6 +80,7 @@ class SampleTable implements NATTable {
     public synchronized PacketTransmission getOutputPacket(Packet packet, Interface iface){
     	//ArrayList<String> inputLine = new ArrayList<String>();
     	RowTable rowTable = new RowTable();
+    	long cleanTime = 0;
     	String key = "";
     	Short outPort = 0;
     	Inet4Address srcAddr, dstAddr = null; 
@@ -98,7 +106,36 @@ class SampleTable implements NATTable {
          * Cualquier paquete que venga de la interface outside inicialmente, 
          * será descartado.
          */
-    	Packet.Builder packetB = packet.getBuilder();
+    	
+    	if (first) {
+    		try {
+	    		File file = new File("/home/ro/eclipse-workspace/NAT2018-19/src/main/java/NAT.txt");
+				BufferedReader staticNat = new BufferedReader(new FileReader(file));
+	    		first = false;
+	    		String st; 
+	    		String[] parameters;
+	    		while ((st = staticNat.readLine()) != null) {
+	    			parameters = st.split(" ");
+	    			switch (parameters[0]) {
+		    			case "17":
+		    				rowTable.setProtocol(IpNumber.TCP);
+		    				break;
+		    			case "6":
+		    				rowTable.setProtocol(IpNumber.UDP);
+		    				break;
+	    			}
+	    			rowTable.setOutPort(Short.parseShort(parameters[1]));
+	    			rowTable.setInIP((Inet4Address)InetAddress.getByName(parameters[2]));
+	    			rowTable.setSrcPort(Short.parseShort(parameters[3]));
+	    			rowTable.setUltimoUso(Long.parseLong("0"));
+	    			key = rowTable.getInIP().toString()+":"+rowTable.getInPort();
+	    			addToTable(key, rowTable, outPort);
+	    		} 
+			} catch (IOException e) {
+				// TODO Auto-generated catch blocks
+				e.printStackTrace();
+			}
+    	}
 	    ethP = packet.get(EthernetPacket.class);
 	    ethB = ethP.getBuilder();
         if (ethP.getHeader().getType() == EtherType.IPV4) {
@@ -107,6 +144,21 @@ class SampleTable implements NATTable {
 	        ipB.correctChecksumAtBuild(true);	
         } else {
         	return null;
+        }
+        
+        // checking time of the last cleaning work  
+        if (cleanTime < System.nanoTime() - 30000000) {
+        	natTable.clear();
+        	cleanTime = System.nanoTime();
+        	System.out.println("Eliminando todas las entradas dinámicas de la tabla");
+        } else {
+        	// checking expiration of the rows of the nat table
+        	for (String keys: natTable.keySet()) {
+        		if (natTable.get(keys).getUltimoUso() < System.nanoTime() - 60000000) {
+        			natTable.remove(keys);
+        			System.out.println("La entrada "+keys+" ha sido eliminada porque ha caducado");
+        		}
+        	}
         }
         if (iface == RoNAT.Interface.INSIDE) {
         	iface = RoNAT.Interface.OUTSIDE;
@@ -158,29 +210,11 @@ class SampleTable implements NATTable {
         		rowTable.setInIP(ipv4P.getHeader().getSrcAddr());
         		//System.out.println(rowTable.getInIP());
         		rowTable.setOutIP(ipv4P.getHeader().getDstAddr());
-        		//System.out.println(key);
-        		// First use of ip_in:port_in
-	        	if (usedPorts.containsKey(rowTable.getInPort())) {
-	        		System.out.println("Puerto en uso");
-	        		if (usedPorts.get(rowTable.getInPort()) == rowTable.getInIP().toString()+":"+rowTable.getInPort().toString()) {
-	        			rowTable.setOutPort(rowTable.getInPort());
-	        		}
-	        		else {
-	        			outPort = rowTable.getInPort();
-		        		while (!usedPorts.containsKey(outPort)){
-		        			outPort = (short)(rand.nextInt(1500) + 5000);//generate int from 5000 to 6500
-		        			rowTable.setOutPort(outPort);
-		        		}
-		        		usedPorts.put(outPort, rowTable.getInIP().toString()+":"+rowTable.getInPort().toString());
-	        		}
-	        	} else {
-	        		rowTable.setOutPort(rowTable.getInPort());
-	        		usedPorts.put(rowTable.getInPort(), rowTable.getInIP().toString()+":"+rowTable.getInPort().toString());
-	        	}
-	        	System.out.println("Nueva entrada en la tabla");
-	        	natTable.put(key, rowTable);
+	        	addToTable(key, rowTable, outPort);
         	}
         	// 1.- add the dstPort to the packet
+        	if (natTable.get(key).getUltimoUso() != Long.MAX_VALUE)
+        		natTable.get(key).setUltimoUso(System.nanoTime()); // Add time of last use
         	System.out.println(natTable.toString());
         	System.out.println("Entrada de la tabla utilizada: "+natTable.get(key.toString()));
         	System.out.println("Modificando parámetros del paquete");
@@ -275,6 +309,28 @@ class SampleTable implements NATTable {
 		System.out.println("Paquete IP filtrado: recibido por Iface: "+iface+" e IP destino "+ip);
 		return;
     }
+    
+    public void addToTable(String key, RowTable rowTable, Short outPort) {
+    	if (usedPorts.containsKey(rowTable.getInPort())) {
+    		System.out.println("Puerto en uso");
+    		if (usedPorts.get(rowTable.getInPort()) == key) {
+    			rowTable.setOutPort(rowTable.getInPort());
+    		}
+    		else {
+    			outPort = rowTable.getInPort();
+        		while (!usedPorts.containsKey(outPort)){
+        			outPort = (short)(rand.nextInt(1500) + 5000);//generate int from 5000 to 6500
+        			rowTable.setOutPort(outPort);
+        		}
+        		usedPorts.put(outPort, rowTable.getInIP().toString()+":"+rowTable.getInPort().toString());
+    		}
+    	} else {
+    		rowTable.setOutPort(rowTable.getInPort());
+    		usedPorts.put(rowTable.getInPort(), rowTable.getInIP().toString()+":"+rowTable.getInPort().toString());
+    	}
+    	System.out.println("Nueva entrada en la tabla");
+    	natTable.put(key, rowTable);
+    }
 
 }
 
@@ -282,7 +338,14 @@ class RowTable {
 	IpNumber protocol;
 	Short inPort, outPort;
 	Inet4Address inIP, outIP;
+	long ultimoUso;
 	
+	public long getUltimoUso() {
+		return ultimoUso;
+	}
+	public void setUltimoUso(long ultimoUso) {
+		this.ultimoUso = ultimoUso;
+	}
 	public IpNumber getProtocol() {
 		return protocol;
 	}
