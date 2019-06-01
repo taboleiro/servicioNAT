@@ -63,6 +63,7 @@ class SampleTable implements NATTable {
     Random rand = new Random();
     PacketTransmission pTrans;
     Boolean first = true;
+	long cleanTime = 0;
     //private static Logger log = Logger.getLogger("InfoLogging");
     /* 
      * NatTable 
@@ -80,7 +81,6 @@ class SampleTable implements NATTable {
     public synchronized PacketTransmission getOutputPacket(Packet packet, Interface iface){
     	//ArrayList<String> inputLine = new ArrayList<String>();
     	RowTable rowTable = new RowTable();
-    	long cleanTime = 0;
     	String key = "";
     	Short outPort = 0;
     	Inet4Address srcAddr, dstAddr = null; 
@@ -106,7 +106,6 @@ class SampleTable implements NATTable {
          * Cualquier paquete que venga de la interface outside inicialmente, 
          * será descartado.
          */
-    	
     	if (first) {
     		try {
 	    		File file = new File("/home/ro/eclipse-workspace/NAT2018-19/src/main/java/NAT.txt");
@@ -145,18 +144,19 @@ class SampleTable implements NATTable {
         } else {
         	return null;
         }
-        
-        // checking time of the last cleaning work  
-        if (cleanTime < System.nanoTime() - 30000000) {
+        // checking time of the last cleaning work
+    	System.out.println("Clean time:"+cleanTime);
+        if (cleanTime < System.currentTimeMillis() - 30000) {
         	natTable.clear();
-        	cleanTime = System.nanoTime();
+        	cleanTime = System.currentTimeMillis();
         	System.out.println("Eliminando todas las entradas dinámicas de la tabla");
         } else {
         	// checking expiration of the rows of the nat table
         	for (String keys: natTable.keySet()) {
-        		if (natTable.get(keys).getUltimoUso() < System.nanoTime() - 60000000) {
+        		if (natTable.get(keys).getUltimoUso() < System.currentTimeMillis() - 60000 && natTable.get(keys).getUltimoUso() > 0) {
+        			System.out.println("La entrada "+keys+" ha sido eliminada porque ha caducado");  
+        			System.out.println("valor de último uso: "+natTable.get(keys).getUltimoUso());      			
         			natTable.remove(keys);
-        			System.out.println("La entrada "+keys+" ha sido eliminada porque ha caducado");
         		}
         	}
         }
@@ -266,7 +266,7 @@ class SampleTable implements NATTable {
 	    		tcpB.correctChecksumAtBuild(true);
 	    		outPort = tcpPacket.getHeader().getDstPort().value();
 	    	}    
-	    	//System.out.println("Puerto de acceso: "+outPort);
+	    	System.out.println("Puerto de acceso: "+outPort);
 	    	System.out.println(usedPorts.keySet());
     		if (usedPorts.containsKey(outPort)) {
     	    	//System.out.println("Estamos aquí");
@@ -297,6 +297,7 @@ class SampleTable implements NATTable {
 	        	//System.out.println(ethP);
     		} else {
     			filtering("OUTSIDE", ipv4P.getHeader().getDstAddr().toString());
+    			System.out.println("PAquete filtrado");
     			return null;
     		}        	
         }
