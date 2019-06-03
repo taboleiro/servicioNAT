@@ -12,11 +12,16 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Random;
 import org.pcap4j.packet.EthernetPacket;
+import org.pcap4j.packet.IcmpV4CommonPacket;
+import org.pcap4j.packet.IcmpV4CommonPacket.Builder;
+import org.pcap4j.packet.IcmpV4EchoPacket;
+import org.pcap4j.packet.IcmpV4EchoReplyPacket;
 import org.pcap4j.packet.IpV4Packet;
 import org.pcap4j.packet.Packet;
 import org.pcap4j.packet.TcpPacket;
 import org.pcap4j.packet.UdpPacket;
 import org.pcap4j.packet.namednumber.EtherType;
+import org.pcap4j.packet.namednumber.IcmpV4Type;
 import org.pcap4j.packet.namednumber.IpNumber;
 import org.pcap4j.packet.namednumber.TcpPort;
 import org.pcap4j.packet.namednumber.UdpPort;
@@ -79,7 +84,6 @@ class SampleTable implements NATTable {
    
     @Override
     public synchronized PacketTransmission getOutputPacket(Packet packet, Interface iface){
-    	//ArrayList<String> inputLine = new ArrayList<String>();
     	RowTable rowTable = new RowTable();
     	String key = "";
     	Short outPort = 0;
@@ -87,25 +91,15 @@ class SampleTable implements NATTable {
     	Short srcPort, dstPort = 0;
     	EthernetPacket ethP;
     	EthernetPacket.Builder ethB;
-    	IpV4Packet ipv4P;
-    	IpV4Packet.Builder ipB;
+    	IpV4Packet ipv4P = null;
+    	IpV4Packet.Builder ipB = null;
     	UdpPacket udpPacket = null;
     	UdpPacket.Builder udpB = null;
     	TcpPacket tcpPacket = null;
     	TcpPacket.Builder tcpB = null;
-        //System.err.println("Thread xestionando a interface " + 
-		//	   ((iface == RoNAT.Interface.OUTSIDE) ? "externa" : "interna"));
-        //System.err.println(packet);
-        
-        //"inside : outside" case
-        
-        /*
-         * IMPORTANTE: Ahora mismo no tengo en cuenta los puertos que se vienen
-         * con la tabla de reenvío inicial. Considero que no existe una tabla 
-         * inicial y por lo tanto el servivio NAT empieza de cero. 
-         * Cualquier paquete que venga de la interface outside inicialmente, 
-         * será descartado.
-         */
+    	IcmpV4CommonPacket icmpPacket = null;
+    	Builder icmpB = null;
+    	Boolean synFlag = true, synFin = false, prueba = true;
     	if (first) {
     		try {
 	    		File file = new File("/home/ro/eclipse-workspace/NAT2018-19/src/main/java/NAT.txt");
@@ -124,11 +118,13 @@ class SampleTable implements NATTable {
 		    				break;
 	    			}
 	    			rowTable.setOutPort(Short.parseShort(parameters[1]));
+	    			rowTable.setOutIP(addrSet.getOuterIP());
 	    			rowTable.setInIP((Inet4Address)InetAddress.getByName(parameters[2]));
-	    			rowTable.setSrcPort(Short.parseShort(parameters[3]));
+	    			rowTable.setInPort(Short.parseShort(parameters[3]));
 	    			rowTable.setUltimoUso(Long.parseLong("0"));
 	    			key = rowTable.getInIP().toString()+":"+rowTable.getInPort();
 	    			addToTable(key, rowTable, outPort);
+	    			rowTable = new RowTable();
 	    		} 
 			} catch (IOException e) {
 				// TODO Auto-generated catch blocks
@@ -141,38 +137,30 @@ class SampleTable implements NATTable {
         	ipv4P = ethP.get(IpV4Packet.class);
         	ipB = ipv4P.getBuilder();
 	        ipB.correctChecksumAtBuild(true);	
-        } else {
+        } else if(ethP.getHeader().getType() == EtherType.ARP){
+        	System.out.println("Paquete ARP: recibido por Iface: "+iface);
         	return null;
         }
-        // checking time of the last cleaning work
-    	System.out.println("Clean time:"+cleanTime);
-        if (cleanTime < System.currentTimeMillis() - 30000) {
-        	natTable.clear();
-        	cleanTime = System.currentTimeMillis();
-        	System.out.println("Eliminando todas las entradas dinámicas de la tabla");
-        } else {
-        	// checking expiration of the rows of the nat table
-        	for (String keys: natTable.keySet()) {
-        		if (natTable.get(keys).getUltimoUso() < System.currentTimeMillis() - 60000 && natTable.get(keys).getUltimoUso() > 0) {
-        			System.out.println("La entrada "+keys+" ha sido eliminada porque ha caducado");  
-        			System.out.println("valor de último uso: "+natTable.get(keys).getUltimoUso());      			
-        			natTable.remove(keys);
-        		}
-        	}
-        }
+    	// checking expiration of the rows of the nat table
+    	if (cleanTime < System.currentTimeMillis() - 30000) {
+	    	for (String keys: natTable.keySet()) {
+	    		if (natTable.get(keys).getUltimoUso() < System.currentTimeMillis() - 60000 && natTable.get(keys).getUltimoUso() > 0) {
+	    			if (usedPorts.containsKey(natTable.get(keys).getOutPort()))
+	    				usedPorts.remove(natTable.get(keys).getOutPort());     			
+	    			natTable.remove(keys);
+	    		}
+	    	}
+	    }
+        cleanTime = System.currentTimeMillis();
         if (iface == RoNAT.Interface.INSIDE) {
         	iface = RoNAT.Interface.OUTSIDE;
         	// Obtención de los datos para tabla de reenvío
-        	System.out.println("El paquete viene de la interface inside");
         	if (ipv4P.getHeader().getDstAddr().toString().contains("/224.") ||
         		ipv4P.getHeader().getDstAddr().equals(addrSet.getInnerIP())) {
-        		// this packet is filtered because it contains a multicast direction
         		filtering("INSIDE", ipv4P.getHeader().getDstAddr().toString());
         		return null; 
         	}
-        	//System.out.println(packet);
         	key = ipv4P.getHeader().getSrcAddr().toString();
-        	System.out.println("Direccion origen IP"+ipv4P.getHeader().getSrcAddr().toString());
         	if (ipMac.containsKey(key)){
         		if (ipMac.get(key) != ethP.getHeader().getSrcAddr()) {
         			ipMac.put(key, ethP.getHeader().getSrcAddr());
@@ -180,81 +168,78 @@ class SampleTable implements NATTable {
         	} else {
         		ipMac.put(key, ethP.getHeader().getSrcAddr());
         	}
-        	System.out.println("ipMac lista: "+ipMac);
         	if (ipv4P.getHeader().getProtocol() == IpNumber.UDP) {
-	        	System.out.println("Trabajando con UDP");
         		udpPacket = ipv4P.get(UdpPacket.class);
-        		System.out.println("'"+udpPacket.getHeader().getSrcPort().toString()+"'");
-        		System.out.println("'"+udpPacket.getHeader().getSrcPort().toString()+"'");
-        		rowTable.setSrcPort(udpPacket.getHeader().getSrcPort().value()); 
+        		rowTable.setInPort(udpPacket.getHeader().getSrcPort().value()); 
         		if (udpPacket.getHeader().getDstPort().value() == 12345) {
         			for (String row : natTable.keySet()){
-        				System.out.println(natTable.get(row).getProtocol()+"	"+natTable.get(row).getOutIP()+"	"+natTable.get(row).getOutPort()+"	"+natTable.get(row).getInIP()+"	"+natTable.get(row).getInPort());
+        				System.out.println(natTable.get(row).getProtocol()
+	        						+"	"+natTable.get(row).getOutIP()
+	        						+"	"+natTable.get(row).getOutPort()
+	        						+"	"+natTable.get(row).getInIP()
+	        						+"	"+natTable.get(row).getInPort()
+	        						+"	"+natTable.get(row).getUltimoUso());
         			}
         			return null;
         		}
         	}else if (ipv4P.getHeader().getProtocol() == IpNumber.TCP) {
-	        	System.out.println("Trabajando con TCP");
         		tcpPacket = ipv4P.get(TcpPacket.class);
-        		rowTable.setSrcPort(tcpPacket.getHeader().getSrcPort().value());
+        		rowTable.setInPort(tcpPacket.getHeader().getSrcPort().value());
+        		if (!tcpPacket.getHeader().getSyn())
+        			synFlag = false;
+        		if (tcpPacket.getHeader().getFin()) {
+        			natTable.get(key).setUltimoUso(natTable.get(key).getUltimoUso() - 40000);
+        			synFin = true;
+        		}
         	}
-        	System.out.println(rowTable.getInPort().toString());
-        	System.out.println(key);
+        	if (ipv4P.getHeader().getProtocol() == IpNumber.ICMPV4) {
+        		icmpPacket = ethP.get(IcmpV4CommonPacket.class);
+        		if (icmpPacket.getHeader().getType() == IcmpV4Type.ECHO) {
+	        		IcmpV4EchoPacket icmpP = ethP.get(IcmpV4EchoPacket.class);
+	        		rowTable.setInPort(icmpP.getHeader().getIdentifier());
+        		}
+        		else {
+        			return null;
+        		}
+        	}
         	key = key.concat(":"+rowTable.getInPort().toString());
-        	System.out.println(key);
-        	if (!natTable.containsKey(key)) {
-        		System.out.println("No existe entrada en la tabla. Creando entrada");
-        		//System.out.println(ipv4P.getHeader().getProtocol());
+        	if (!natTable.containsKey(key) && synFlag) {
         		rowTable.setProtocol(ipv4P.getHeader().getProtocol());
-        		//System.out.println(rowTable.getProtocol());
         		rowTable.setInIP(ipv4P.getHeader().getSrcAddr());
-        		//System.out.println(rowTable.getInIP());
         		rowTable.setOutIP(ipv4P.getHeader().getDstAddr());
 	        	addToTable(key, rowTable, outPort);
         	}
-        	// 1.- add the dstPort to the packet
-        	if (natTable.get(key).getUltimoUso() != Long.MAX_VALUE)
-        		natTable.get(key).setUltimoUso(System.nanoTime()); // Add time of last use
-        	System.out.println(natTable.toString());
-        	System.out.println("Entrada de la tabla utilizada: "+natTable.get(key.toString()));
-        	System.out.println("Modificando parámetros del paquete");
+        	if (natTable.get(key).getUltimoUso() != 0 && !synFin)
+        		natTable.get(key).setUltimoUso(System.currentTimeMillis()); // Add time of last use
         	if (ipv4P.getHeader().getProtocol() == IpNumber.UDP) {
         		udpPacket = packet.get(UdpPacket.class);
         		udpB = udpPacket.getBuilder();
         		udpB.correctChecksumAtBuild(true);
-	        	System.out.println("	puerto destino original: "+udpPacket.getHeader().getDstPort().toString());
         		udpB.srcPort(UdpPort.getInstance(natTable.get(key).getOutPort()));
         		udpB.dstAddr(ipv4P.getHeader().getDstAddr());
         		udpB.srcAddr(addrSet.getOuterIP());
-	        	System.out.println("	IPdir origen original: "+ipv4P.getHeader().getSrcAddr().toString());
 				ipB.srcAddr(addrSet.getOuterIP()).payloadBuilder(udpB);
-	        	System.out.println("	IPdir origen modificado: "+addrSet.getOuterIP().toString());
         	}else if (ipv4P.getHeader().getProtocol() == IpNumber.TCP) {
         		tcpPacket = packet.get(TcpPacket.class);
-	        	System.out.println("puerto destino "+tcpPacket.getHeader().getDstPort().toString());
         		tcpB = tcpPacket.getBuilder();
         		tcpB.correctChecksumAtBuild(true);
-	        	System.out.println("	puerto destino original: "+tcpPacket.getHeader().getSrcPort().toString());
 	        	tcpB.srcPort(TcpPort.getInstance(natTable.get(key).getOutPort()));
         		tcpB.dstAddr(ipv4P.getHeader().getDstAddr());
         		tcpB.srcAddr(addrSet.getOuterIP());
 				ipB.srcAddr(addrSet.getOuterIP()).payloadBuilder(tcpB);
+        	} else if (ipv4P.getHeader().getProtocol() == IpNumber.ICMPV4) {
+        		IcmpV4CommonPacket icmpP = packet.get(IcmpV4CommonPacket.class);
+        		icmpB = icmpP.getBuilder();
+        		icmpB.correctChecksumAtBuild(true);
+    			IcmpV4EchoPacket.Builder icmpEchoB = icmpP.get(IcmpV4EchoPacket.class).getBuilder();
+    			icmpEchoB.identifier(natTable.get(key).getOutPort());
+        		icmpB.payloadBuilder(icmpEchoB);
+        		ipB.srcAddr(addrSet.getOuterIP()).payloadBuilder(icmpB);
         	}
-        	//ipv4P = ipB.build();
-        	System.out.println("	dir Ethernet origen incial: "+ethP.getHeader().getSrcAddr());
-        	System.out.println("	dir Ethernet destino inicial: "+ethP.getHeader().getDstAddr());
-        	//System.out.println("	dir Ethernet Router: "+addrSet.getRouterMac());
-        	//System.out.println("	dir Ethernet outerMac: "+addrSet.getOuterMac());
         	ethB.dstAddr(addrSet.getRouterMac()).srcAddr(addrSet.getOuterMac()).payloadBuilder(ipB);
         	ethP = ethB.build();
-        	System.out.println("	dir Ethernet origen modificado: "+ethP.getHeader().getSrcAddr());
-        	System.out.println("	dir Ethernet destino modificado: "+ethP.getHeader().getDstAddr());
-        	//System.out.println(packet);
         }else if (iface == RoNAT.Interface.OUTSIDE) {
         	iface = RoNAT.Interface.INSIDE;
-        	System.out.println("RECIBIMOS PAQUETE DE VUELTA");
-    		// checking the used port 
-        	//System.out.println(ipv4P.getHeader().getProtocol());
 	    	if (ipv4P.getHeader().getProtocol() == IpNumber.UDP) {
 	    		udpPacket = ipv4P.get(UdpPacket.class);
 	    		udpB = udpPacket.getBuilder();
@@ -265,39 +250,40 @@ class SampleTable implements NATTable {
 	    		tcpB = tcpPacket.getBuilder();
 	    		tcpB.correctChecksumAtBuild(true);
 	    		outPort = tcpPacket.getHeader().getDstPort().value();
-	    	}    
-	    	System.out.println("Puerto de acceso: "+outPort);
-	    	System.out.println(usedPorts.keySet());
+	    	}else if (ipv4P.getHeader().getProtocol() == IpNumber.ICMPV4) {
+	    		icmpPacket = ipv4P.get(IcmpV4CommonPacket.class);
+	    		icmpB = icmpPacket.getBuilder();
+	    		icmpB.correctChecksumAtBuild(true);
+	    		if (icmpPacket.getHeader().getType() == IcmpV4Type.ECHO_REPLY) {
+	    			outPort = icmpPacket.get(IcmpV4EchoReplyPacket.class).getHeader().getIdentifier();
+	    		} else {
+	    			return null;
+	    		}
+	    	}
     		if (usedPorts.containsKey(outPort)) {
-    	    	//System.out.println("Estamos aquí");
     			key = usedPorts.get(outPort);
     			// Changing source and destination port 
     			if (ipv4P.getHeader().getProtocol() == IpNumber.UDP) {
-	    			//udpB.srcPort(UdpPort.getInstance(natTable.get(key).getOutPort()));
 	    			udpB.dstPort(UdpPort.getInstance(natTable.get(key).getInPort()));	
 	    			udpB.srcAddr(ipv4P.getHeader().getSrcAddr());
 	    			udpB.dstAddr(natTable.get(key).getInIP());
 	    			ipB.dstAddr(natTable.get(key).getInIP()).payloadBuilder(udpB);
 				} else if (ipv4P.getHeader().getProtocol() == IpNumber.TCP) {
-	    			//tcpB.srcPort(TcpPort.getInstance();
 	    			tcpB.dstPort(TcpPort.getInstance(natTable.get(key).getInPort()));
 	    			tcpB.srcAddr(ipv4P.getHeader().getSrcAddr());
 	    			tcpB.dstAddr(natTable.get(key).getInIP());
 	    			ipB.dstAddr(natTable.get(key).getInIP()).payloadBuilder(tcpB);
+				} else if (ipv4P.getHeader().getProtocol() == IpNumber.ICMPV4) {
+					IcmpV4EchoReplyPacket.Builder icmpReplyB = icmpPacket.get(IcmpV4EchoReplyPacket.class).getBuilder();
+					icmpReplyB.identifier(natTable.get(key).getInPort());
+					icmpB.payloadBuilder(icmpReplyB).correctChecksumAtBuild(true);
+	    			ipB.dstAddr(natTable.get(key).getInIP()).payloadBuilder(icmpB);
 				}
-    	    	//System.out.println("Estamos aquí 2");
     			ipv4P = ipB.build();
-	        	// building the packet
-    	    	//System.out.println("Estamos aquí 3");
-    	    	//System.out.println(ipv4P.getHeader().getDstAddr().toString());
-    	    	//System.out.println(ipMac.keySet());
 	        	ethB.dstAddr(ipMac.get(ipv4P.getHeader().getDstAddr().toString())).srcAddr(addrSet.getInnerMac()).payloadBuilder(ipB);
 	        	ethP = ethB.build();
-    	    	System.out.println("Estamos aquí 4");
-	        	//System.out.println(ethP);
     		} else {
     			filtering("OUTSIDE", ipv4P.getHeader().getDstAddr().toString());
-    			System.out.println("PAquete filtrado");
     			return null;
     		}        	
         }
@@ -313,7 +299,6 @@ class SampleTable implements NATTable {
     
     public void addToTable(String key, RowTable rowTable, Short outPort) {
     	if (usedPorts.containsKey(rowTable.getInPort())) {
-    		System.out.println("Puerto en uso");
     		if (usedPorts.get(rowTable.getInPort()) == key) {
     			rowTable.setOutPort(rowTable.getInPort());
     		}
@@ -329,7 +314,6 @@ class SampleTable implements NATTable {
     		rowTable.setOutPort(rowTable.getInPort());
     		usedPorts.put(rowTable.getInPort(), rowTable.getInIP().toString()+":"+rowTable.getInPort().toString());
     	}
-    	System.out.println("Nueva entrada en la tabla");
     	natTable.put(key, rowTable);
     }
 
@@ -339,8 +323,16 @@ class RowTable {
 	IpNumber protocol;
 	Short inPort, outPort;
 	Inet4Address inIP, outIP;
-	long ultimoUso;
-	
+	long ultimoUso = Long.parseLong("1");
+	/*
+	public RowTable(IpNumber protocol, Short inPort, Inet4Address inIP, Short outPort, Inet4Address outIP, Long ultimoUso) {
+		this.protocol = protocol;
+		this.inPort = inPort;
+		this.inIP = inIP;
+		this.outPort = outPort;
+		this.outIP = outIP;
+		this.ultimoUso = ultimoUso;
+	}*/
 	public long getUltimoUso() {
 		return ultimoUso;
 	}
@@ -356,7 +348,7 @@ class RowTable {
 	public Short getInPort() {
 		return inPort;
 	}
-	public void setSrcPort(Short inPort) {
+	public void setInPort(Short inPort) {
 		this.inPort = inPort;
 	}
 	public Short getOutPort() {
