@@ -123,7 +123,7 @@ class SampleTable implements NATTable {
 	    			rowTable.setInPort(Short.parseShort(parameters[3]));
 	    			rowTable.setUltimoUso(Long.parseLong("0"));
 	    			key = rowTable.getInIP().toString()+":"+rowTable.getInPort();
-	    			addToTable(key, rowTable, outPort);
+	    			addToTable(key, rowTable, rowTable.getOutPort());
 	    			rowTable = new RowTable();
 	    		} 
 			} catch (IOException e) {
@@ -171,14 +171,24 @@ class SampleTable implements NATTable {
         	if (ipv4P.getHeader().getProtocol() == IpNumber.UDP) {
         		udpPacket = ipv4P.get(UdpPacket.class);
         		rowTable.setInPort(udpPacket.getHeader().getSrcPort().value()); 
+        		System.out.println("Protocolo      IPout     Puerto_out     IPin     Puerto_in");
         		if (udpPacket.getHeader().getDstPort().value() == 12345) {
         			for (String row : natTable.keySet()){
-        				System.out.println(natTable.get(row).getProtocol()
+        				if (natTable.get(row).getProtocol() == IpNumber.UDP) {
+	        				System.out.println(" "+natTable.get(row).getProtocol()
+		        						+"	"+natTable.get(row).getOutIP()
+		        						+"	"+natTable.get(row).getOutPort()
+		        						+"	"+natTable.get(row).getInIP()
+		        						+"	"+natTable.get(row).getInPort().intValue()
+		        						+"	"+natTable.get(row).getUltimoUso());
+        				} else {
+	        				System.out.println(natTable.get(row).getProtocol()
 	        						+"	"+natTable.get(row).getOutIP()
 	        						+"	"+natTable.get(row).getOutPort()
 	        						+"	"+natTable.get(row).getInIP()
-	        						+"	"+natTable.get(row).getInPort()
-	        						+"	"+natTable.get(row).getUltimoUso());
+	        						+"	"+natTable.get(row).getInPort().intValue()
+	        						+"	"+natTable.get(row).getUltimoUso());	        					
+	        			}
         			}
         			return null;
         		}
